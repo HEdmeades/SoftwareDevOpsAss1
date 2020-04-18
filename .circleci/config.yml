@@ -1,0 +1,156 @@
+version: 2.1
+executors:
+  docker-executor:
+    working_directory: ~/repo/src
+    docker:
+      - image: circleci/node:lts
+  docker-executor-with-database:
+    working_directory: ~/repo/src
+    docker:
+      - image: circleci/node:lts
+      - image: postgres:10.7
+        environment:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: servian
+commands:
+  checkout_path:
+    steps:
+      - checkout:
+          path: ~/repo
+      - run:
+          name: Checkout Repo
+          command: |
+            ls
+  install_deps:
+    steps:
+      - checkout_path
+      - run:
+          name: Install Dependencies
+          command: |
+            npm install
+
+jobs:
+  build:
+    executor: docker-executor
+    steps:
+      - install_deps
+
+  unit-tests:
+    executor: docker-executor
+    steps:
+      - install_deps
+      - run:
+          name: Run Unit Test
+          command: |
+            mkdir -p test-results/mocha
+            npm run test-unit
+      - store_test_results:
+          path: test-results
+
+  lint:
+    executor: docker-executor
+    steps:
+      - install_deps
+      - run:
+          name: Run Lint
+          command: |
+            npm run test-lint
+      - store_test_results:
+          path: test-results
+
+  code-coverage-report:
+    executor: docker-executor
+    steps:
+      - install_deps
+      - run:
+          name: Run Code Coverage
+          command: |
+            mkdir -p .nyc_output
+            npm run test-coverage
+      - store_artifacts:
+          path: coverage/lcov-report
+
+  pack:
+    executor: docker-executor
+    environment:
+      NODE_ENV: production
+    steps:
+      - install_deps
+      - run:
+          name: Pack src
+          command: |
+            npm pack
+      - store_artifacts:
+          path: ./rmit-app-0.0.0.tgz
+
+  build-artefact:
+    executor: docker-executor
+    steps:
+      - setup_remote_docker
+      - checkout_path
+      - run: docker build -t rmit/app:$CIRCLE_BRANCH .
+      - run: docker push rmit/app:$CIRCLE_BRANCH
+      - run: docker run -p 49160:8080 -d rmit/app:$CIRCLE_BRANCH
+
+  integration-tests:
+    executor: docker-executor-with-database
+    environment:
+      NODE_ENV: integration
+      MOCHA_FILE: test-results/mocha/integration-test-results.xml
+    steps:
+      - install_deps
+      - run:
+          name: Integration tests
+          command: |
+            mkdir -p test-results/mocha
+            npm run test-integration
+      - store_test_results:
+          path: test-results
+
+  end-end-testing:
+    executor: docker-executor-with-database
+    steps:
+      - install_deps
+      - run:
+          name: QA Wolf testing
+          command: |
+            mkdir -p e2e/results
+            mkdir -p e2e/artifacts
+            npm run start:prod &
+            npx wait-on http://localhost:3000
+            npm run epic
+      - store_artifacts:
+          path: e2e/results
+      - store_artifacts:
+          path: e2e/artifacts
+
+workflows:
+  version: 2
+  build-test-package:
+    jobs:
+#      - build
+      - end-end-testing
+#      - unit-tests:
+#          requires:
+#            - build
+#      - lint:
+#          requires:
+#            - build
+#      - code-coverage-report:
+#          requires:
+#            - build
+#      - integration-tests:
+#          requires:
+#            - build
+#      - pack:
+#          requires:
+#            - integration-tests
+#            - unit-tests
+#            - lint
+#            - code-coverage-report
+#          filters:
+#            branches:
+#              only:
+#                - master
+#                - feature-artefact-deployment

@@ -1,0 +1,8 @@
+creds.sh
+.terraform*
+terraform.tfstate
+terraform.tfstate.backup
+tmp/
+package-lock.json
+src/package-lock.json
+src/rmit-app-0.0.0.tgz
